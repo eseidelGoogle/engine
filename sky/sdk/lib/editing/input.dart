@@ -8,12 +8,34 @@ import 'package:sky/mojo/keyboard.dart';
 import 'package:sky/painting/text_style.dart';
 import 'package:sky/widgets/basic.dart';
 import 'package:sky/widgets/theme.dart';
+import 'package:sky/widgets/widget.dart';
 
 typedef void ValueChanged(value);
 
 // TODO(eseidel): This isn't right, it's 16px on the bottom:
 // http://www.google.com/design/spec/components/text-fields.html#text-fields-single-line-text-field
 const EdgeDims _kTextfieldPadding = const EdgeDims.symmetric(vertical: 8.0);
+
+class InputState {
+  GlobalKey globalKey;
+  String value;
+}
+
+class Focus {
+  bool isFocused = false;
+  Focus.from(Widget widget) {
+
+  }
+}
+
+class FocusState {
+  GlobalKey globalKey;
+}
+
+class FocusScope extends Inherited {
+  final FocusState state;
+  FocusScope(this.state);
+}
 
 class Input extends StatefulComponent {
 
@@ -25,15 +47,14 @@ class Input extends StatefulComponent {
   // Never makes sense to have both a localKey and a globalKey.
   // Possibly a class HeroKey who functions as a UUID.
 
-  Input({String key,
+  Input(InputState state, {
          this.placeholder,
-         this.onChanged,
-         this.focused})
-      : super(key: key);
+         this.onChanged})
+      : super(globalKey: state.globalKey);
 
+  InputState state;
   String placeholder;
   ValueChanged onChanged;
-  bool focused = false;
 
   void initState() {
     _editableValue = new EditableString(
@@ -46,7 +67,6 @@ class Input extends StatefulComponent {
   void syncFields(Input source) {
     placeholder = source.placeholder;
     onChanged = source.onChanged;
-    focused = source.focused;
   }
 
   String _value = '';
@@ -64,6 +84,7 @@ class Input extends StatefulComponent {
 
   Widget build() {
     ThemeData themeData = Theme.of(this);
+    bool focused = Focus.from(this).isFocused;
 
     if (focused && !_isAttachedToKeyboard) {
       keyboard.show(_editableValue.stub);

@@ -19,8 +19,9 @@ import 'package:sky/editing/input.dart';
 import 'package:sky/widgets/scrollable_viewport.dart';
 
 class Field extends Component {
-  Field({this.icon: null, this.placeholder: null});
+  Field(this.state, {this.icon: null, this.placeholder: null});
 
+  InputState state;
   String icon;
   String placeholder;
 
@@ -28,16 +29,35 @@ class Field extends Component {
     return new Flex([
         new Padding(
           padding: const EdgeDims.symmetric(horizontal: 16.0),
-          child: new Icon(type:icon, size:24)
+          child: new Icon(type: icon, size: 24)
         ),
-        new Flexible(child:new Input(placeholder:placeholder, focused:false))
+        new Flexible(
+          child: new Input(
+            state: state,
+            placeholder: placeholder
+          )
+        )
       ],
       direction: FlexDirection.horizontal
     );
   }
 }
 
+class InputStates {
+  // TODO(eseidel): It's not clear to me that this model-like object should
+  // store GlobalKeys for the Inputs in question.  In some apps data could be
+  // displayed in more than one place, and each place would get a separate
+  // GlobalKey.
+  InputState name = new InputState();
+  InputState phone = new InputState();
+  InputState email = new InputState();
+  InputState address = new InputState();
+  InputState ringtone = new InputState();
+  InputState note = new InputState();
+}
+
 class AddressBookApp extends App {
+  InputStates states;
 
   Widget buildToolBar() {
     return new ToolBar(
@@ -62,12 +82,12 @@ class AddressBookApp extends App {
             decoration: new BoxDecoration(backgroundColor: colors.Purple[300])
           )
         ),
-        new Field(icon:"social/person", placeholder:"Name"),
-        new Field(icon: "communication/phone", placeholder:"Phone"),
-        new Field(icon: "communication/email", placeholder:"Email"),
-        new Field(icon: "maps/place", placeholder:"Address"),
-        new Field(icon: "av/volume_up", placeholder:"Ringtone"),
-        new Field(icon: "content/add", placeholder:"Add note"),
+        new Field(states.name, icon: "social/person", placeholder: "Name"),
+        new Field(states.phone, icon: "communication/phone", placeholder: "Phone"),
+        new Field(states.email, icon: "communication/email", placeholder: "Email"),
+        new Field(states.address, icon: "maps/place", placeholder: "Address"),
+        new Field(states.ringtone, icon: "av/volume_up", placeholder: "Ringtone"),
+        new Field(states.note, icon: "content/add", placeholder: "Add note"),
       ])
     );
   }

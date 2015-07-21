@@ -22,15 +22,18 @@ final bool _shouldLogRenderDuration = false;
 typedef Widget Builder();
 typedef void WidgetTreeWalker(Widget);
 
+class GlobalKey {
+}
+
 /// A base class for elements of the widget tree
 abstract class Widget {
 
-  Widget({ String key }) : _key = key {
+  Widget({ String key, GlobalKey globalKey }) : _key = key, _globalKey = globalKey {
     assert(_isConstructedDuringBuild());
   }
 
   // TODO(jackson): Remove this workaround for limitation of Dart mixins
-  Widget._withKey(String key) : _key = key {
+  Widget._withKey(String key, GlobalKey globalKey) : _key = key, _globalKey = globalKey {
     assert(_isConstructedDuringBuild());
   }
 
@@ -38,6 +41,7 @@ abstract class Widget {
   bool _isConstructedDuringBuild() => this is AbstractWidgetRoot || this is App || _inRenderDirtyComponents || _inLayoutCallbackBuilder > 0;
 
   String _key;
+  GlobalKey _globalKey;
 
   /// A semantic identifer for this widget
   ///
@@ -408,9 +412,9 @@ class Listener extends TagNode  {
 
 abstract class Component extends Widget {
 
-  Component({ String key })
+  Component({ String key, GlobalKey globalKey })
       : _order = _currentOrder + 1,
-        super._withKey(key);
+        super._withKey(key, globalKey);
 
   static Component _currentlyBuilding;
   bool get _isBuilding => _currentlyBuilding == this;
@@ -525,7 +529,7 @@ abstract class Component extends Widget {
 
 abstract class StatefulComponent extends Component {
 
-  StatefulComponent({ String key }) : super(key: key);
+  StatefulComponent({ String key, GlobalKey globalKey }) : super(key: key, globalKey: globalKey);
 
   bool _disqualifiedFromEverAppearingAgain = false;
   bool _isStateInitialized = false;
