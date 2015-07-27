@@ -41,6 +41,7 @@ template("sky_app") {
       ]
     }
 
+    # //sky/shell:assets already copies icu, why does this?
     copy_ex("assets") {
       clear_dir = true
       dest = "$target_gen_dir/assets"
@@ -79,6 +80,31 @@ template("sky_app") {
         "//base:base_java",
         "//sky/shell:assets",
         "//sky/shell:java",
+        "//sky/shell:sky_shell",
+        ":assets",
+      ]
+
+      if (defined(invoker.deps)) {
+        deps += invoker.deps
+      }
+    }
+  }
+  if (is_ios && defined(invoker.app_name)) {
+    import("//build/config/ios/rules.gni")
+    import("//build/config/ios/ios_sdk.gni")
+
+    ios_app("${target_name}_app") {
+      app_name = invoker.app_name
+      info_plist = invoker.info_plist
+      entitlements_path = invoker.entitlements_path
+      code_signing_identity = invoker.code_signing_identity
+
+      resource_copy_ios("assets") {
+        resources = [ "$target_gen_dir/app.skyx" ]
+        bundle_directory = "."
+      }
+
+      deps = [
         "//sky/shell:sky_shell",
         ":assets",
       ]

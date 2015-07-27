@@ -15,4 +15,13 @@ sky_app("game") {
       "//sky/sdk/example/game/apk:resources",
     ]
   }
+
+  if (is_ios) {
+    import("//build/config/ios/ios_sdk.gni")
+
+    app_name = "Asteroids"
+    info_plist = "ios/Info.plist"
+    entitlements_path = "ios/Entitlements.xcent"
+    code_signing_identity = ios_code_signing_identity
+  }
 }
