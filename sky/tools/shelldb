@@ -131,6 +131,20 @@ class SetBuildDir(object):
         pids['build_dir'] = os.path.abspath(args.build_dir)
 
 
+def gn_args_from_build_dir(build_dir):
+    gn_cmd = [
+        'gn', 'args',
+        build_dir,
+        '--list', '--short'
+    ]
+    config = {}
+    for line in subprocess.check_output(gn_cmd).strip().split('\n'):
+        # FIXME: This doesn't handle = in values.
+        key, value = line.split(' = ')
+        config[key] = value
+    return config
+
+
 class StartSky(object):
     def add_subparser(self, subparsers):
         start_parser = subparsers.add_parser('start',
@@ -174,52 +188,40 @@ class StartSky(object):
         # e.g. package:/data/app/org.chromium.mojo.shell-1/base.apk
         return pm_output.split(':')[-1]
 
-    def run(self, args, pids):
-        apk_path = os.path.join(args.build_dir, 'apks', APK_NAME)
-        if not os.path.exists(apk_path):
-            print "'%s' does not exist?" % apk_path
-            return 2
+    def _sky_shell_path(self, args):
+        gn_args = gn_args_from_build_dir(args.build_dir)
+        if gn_args.get('target_os') == 'android':
+            return os.path.join(args.build_dir, 'apks', APK_NAME)
+        # Assume Mac/iOS if not Android.
+        return os.path.join(args.build_dir, 'SkyShell.app')
 
-        StopSky().run(args, pids)
+    def _install(self, shell_path):
+        # Slow path, need to upload a new APK to the device
+        # -r to replace an existing apk, -d to allow version downgrade.
+        subprocess.check_call([ADB_PATH, 'install', '-r', '-d', shell_path])
+        # record the SHA1 of the APK we just pushed
+        with tempfile.NamedTemporaryFile() as fp:
+            fp.write(source_sha1)
+            fp.seek(0)
+            subprocess.check_call([ADB_PATH, 'push', fp.name, SHA1_PATH])
 
-        packages_root = dev_packages_root(args.build_dir)
-        sky_server = self._sky_server_for_args(args, packages_root)
-        pids['sky_server_pid'] = sky_server.start()
-        pids['sky_server_port'] = sky_server.port
-        pids['sky_server_root'] = sky_server.root
+    def _can_use_existing_install(self, shell_path):
+        # We might need to install a new APK, so check SHA1
+        source_sha1 = hashlib.sha1(open(shell_path, 'rb').read()).hexdigest()
+        dest_sha1 = subprocess.check_output([ADB_PATH, 'shell', 'cat', SHA1_PATH])
+        if source_sha1 != dest_sha1:
+            return False
+        # Make sure that the APK didn't get uninstalled somehow
+        return subprocess.check_output([
+            ADB_PATH, 'shell', 'pm', 'list', 'packages', ANDROID_PACKAGE
+        ]) != ""
 
-        pids['build_dir'] = os.path.abspath(args.build_dir)
+    def _force_stop(self):
+        subprocess.check_call([
+            ADB_PATH, 'shell', 'am', 'force-stop', ANDROID_PACKAGE
+        ])
 
-        if args.install:
-            # We might need to install a new APK, so check SHA1
-            source_sha1 = hashlib.sha1(open(apk_path, 'rb').read()).hexdigest()
-            dest_sha1 = subprocess.check_output([ADB_PATH, 'shell', 'cat', SHA1_PATH])
-            use_existing_apk = False
-            if source_sha1 == dest_sha1:
-                # Make sure that the APK didn't get uninstalled somehow
-                use_existing_apk = subprocess.check_output([
-                    ADB_PATH, 'shell', 'pm', 'list', 'packages', ANDROID_PACKAGE
-                ])
-        else:
-            # User is telling us not to bother installing an APK
-            use_existing_apk = True
-
-        if use_existing_apk:
-            # APK is already on the device, we only need to stop it
-            subprocess.check_call([
-                ADB_PATH, 'shell', 'am', 'force-stop', ANDROID_PACKAGE
-            ])
-        else:
-            # Slow path, need to upload a new APK to the device
-            # -r to replace an existing apk, -d to allow version downgrade.
-            subprocess.check_call([ADB_PATH, 'install', '-r', '-d', apk_path])
-            # record the SHA1 of the APK we just pushed
-            with tempfile.NamedTemporaryFile() as fp:
-                fp.write(source_sha1)
-                fp.seek(0)
-                subprocess.check_call([ADB_PATH, 'push', fp.name, SHA1_PATH])
-
-        # Set up port forwarding for observatory
+    def _forward_ports(self, sky_server):
         port_string = 'tcp:%s' % OBSERVATORY_PORT
         subprocess.check_call([
             ADB_PATH, 'forward', port_string, port_string
@@ -231,29 +233,14 @@ class StartSky(object):
         ])
         pids['remote_sky_server_port'] = sky_server.port
 
+    def _launch_with_url(self, url):
         subprocess.check_call([ADB_PATH, 'shell',
             'am', 'start',
             '-a', 'android.intent.action.VIEW',
-            '-d', _url_from_args(args, pids),
+            '-d', url,
             ANDROID_COMPONENT])
 
-        if not args.gdb:
-            return
-
-        # TODO(eseidel): am start -W does not seem to work?
-        pid_tries = 0
-        while True:
-            pid = self._find_remote_pid_for_package(ANDROID_PACKAGE)
-            if pid or pid_tries > 3:
-                break
-            logging.debug('No pid for %s yet, waiting' % ANDROID_PACKAGE)
-            time.sleep(5)
-            pid_tries += 1
-
-        if not pid:
-            logging.error('Failed to find pid on device!')
-            return
-
+    def _start_debugging_server(self):
         pids['sky_shell_pid'] = pid
 
         # We push our own copy of gdbserver with the package since
@@ -276,6 +263,48 @@ class StartSky(object):
             ADB_PATH, 'forward', port_string, port_string
         ])
         pids['remote_gdbserver_port'] = GDB_PORT
+
+    def run(self, args, pids):
+        shell_path = self._sky_shell_path(args)
+        if not os.path.exists(shell_path):
+            print "'%s' does not exist?" % shell_path
+            return 2
+
+        StopSky().run(args, pids)
+
+        packages_root = dev_packages_root(args.build_dir)
+        sky_server = self._sky_server_for_args(args, packages_root)
+        pids['sky_server_pid'] = sky_server.start()
+        pids['sky_server_port'] = sky_server.port
+        pids['sky_server_root'] = sky_server.root
+
+        pids['build_dir'] = os.path.abspath(args.build_dir)
+
+        if not args.install or self._can_use_existing_install(shell_path):
+            self._force_stop()
+        else:
+            self._install(shell_path)
+
+        self._forward_ports(sky_server)
+        self._launch_with_url(_url_from_args(args, pids))
+
+        if not args.gdb:
+            return
+
+        # TODO(eseidel): am start -W does not seem to work?
+        pid_tries = 0
+        while True:
+            pid = self._find_remote_pid_for_package(ANDROID_PACKAGE)
+            if pid or pid_tries > 3:
+                break
+            logging.debug('No pid for %s yet, waiting' % ANDROID_PACKAGE)
+            time.sleep(5)
+            pid_tries += 1
+
+        if not pid:
+            logging.error('Failed to find pid on device!')
+            return
+
 
 
 class GDBAttach(object):
