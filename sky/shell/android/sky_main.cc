@@ -16,6 +16,8 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/threading/simple_thread.h"
+#include "base/trace_event/trace_config.h"
+#include "base/trace_event/trace_event.h"
 #include "jni/SkyMain_jni.h"
 #include "sky/shell/service_provider.h"
 #include "sky/shell/shell.h"
@@ -55,6 +57,8 @@ static void Init(JNIEnv* env, jclass clazz, jobject context) {
 
   Shell::Init(make_scoped_ptr(new ServiceProviderContext(
       g_java_message_loop.Get()->task_runner())));
+
+  base::trace_event::TraceLog::GetInstance()->StartATrace();
 }
 
 bool RegisterSkyMain(JNIEnv* env) {
